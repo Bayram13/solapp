@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: solana-token-watcher
     env: python
     region: oregon
