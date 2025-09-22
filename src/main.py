@@ -1,10 +1,7 @@
 import asyncio
-import threading
-import os
 from math import floor
-from flask import Flask
+from flask import Flask, jsonify
 from solana.rpc.async_api import AsyncClient
-
 from .config import settings
 from .solana_watcher import watch_new_pools
 from .metrics import (
@@ -16,7 +13,45 @@ from .metrics import (
 from .storage import init_db, upsert_token, get_token, update_last_multiple
 from .telegram import send_message
 
+# --------------------------------------------
+# Flask app
+# --------------------------------------------
+app = Flask(__name__)
 
+@app.route("/")
+def health():
+    return "✅ Solana Token Watcher is running!"
+
+@app.route("/debug_tokens")
+def debug_tokens():
+    try:
+        import sqlite3
+        conn = sqlite3.connect("data.db")
+        cur = conn.execute(
+            "SELECT mint, initial_mc_usd, last_multiple FROM tokens ORDER BY rowid DESC LIMIT 20;"
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return jsonify({"count": len(rows), "rows": rows})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/trigger_test")
+def trigger_test():
+    import random
+    test_mint = f"TEST{random.randint(1000,9999)}"
+    try:
+        # Async function Flask sync context-da run olunur
+        asyncio.run(
+            upsert_token(test_mint, symbol="TST", name="Test Token", initial_mc_usd=12345)
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"status": "triggered", "mint": test_mint})
+
+# --------------------------------------------
+# Token processing
+# --------------------------------------------
 FILTER_MSG_TEMPLATE = (
     "CA: {mint}\n"
     "├ 📊 MC: ${mc:.2f}K\n"
@@ -34,47 +69,6 @@ FILTER_MSG_TEMPLATE = (
     "DEX PAID"
 )
 
-# ---- Flask app for Render ----
-app = Flask(__name__)
-from flask import Flask, jsonify
-import sqlite3
-
-app = Flask(__name__)
-
-@app.route("/trigger_test")
-def trigger_test():
-    import asyncio
-    from src.storage import upsert_token
-    import random
-
-    test_mint = f"TEST{random.randint(1000,9999)}"
-    asyncio.create_task(upsert_token(test_mint, symbol="TST", name="Test Token", initial_mc_usd=12345))
-    return {"status": "triggered", "mint": test_mint}
-
-
-@app.route("/")
-def health():
-    return "✅ Solana Token Watcher is running!"
-
-@app.route("/debug_tokens")
-def debug_tokens():
-    try:
-        conn = sqlite3.connect("data.db")
-        cur = conn.execute(
-            "SELECT mint, initial_mc_usd, last_multiple FROM tokens ORDER BY rowid DESC LIMIT 20;"
-        )
-        rows = cur.fetchall()
-        conn.close()
-        # JSON formatında qaytarır
-        return jsonify({"count": len(rows), "rows": rows})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/")
-def index():
-    return "✅ Solana Token Watcher is running!"
-
-# ---- Bot logic ----
 async def process_new_token(client: AsyncClient, signature: str) -> None:
     mint = await derive_base_mint_from_tx(client, signature)
     if not mint:
@@ -98,7 +92,6 @@ async def process_new_token(client: AsyncClient, signature: str) -> None:
         mint=mint, mc=mc / 1000.0, top10=top10, x="n/a", web="n/a"
     )
     send_message(text)
-
 
 async def monitor_multipliers(client: AsyncClient) -> None:
     import aiosqlite
@@ -124,8 +117,7 @@ async def monitor_multipliers(client: AsyncClient) -> None:
             pass
         await asyncio.sleep(45)
 
-
-async def bot_main() -> None:
+async def main() -> None:
     await init_db()
     client = AsyncClient(settings.resolved_rpc(), timeout=20)
 
@@ -138,19 +130,18 @@ async def bot_main() -> None:
 
     await asyncio.gather(pool_listener(), monitor_multipliers(client))
 
-
-def run_flask():
-    port = int(os.environ.get("PORT", 8000))
-    app.run(host="0.0.0.0", port=port)
-
-
+# --------------------------------------------
+# Run background tasks + Flask
+# --------------------------------------------
 if __name__ == "__main__":
-    # Flask-i ayrı thread-də işə salırıq
-    t = threading.Thread(target=run_flask)
-    t.start()
+    import threading
 
-    # Botu async şəkildə işə salırıq
-    try:
-        asyncio.run(bot_main())
-    except KeyboardInterrupt:
-        pass
+    # Background thread-da asyncio event loop
+    def start_async_tasks():
+        asyncio.run(main())
+
+    thread = threading.Thread(target=start_async_tasks, daemon=True)
+    thread.start()
+
+    # Flask app run
+    app.run(host="0.0.0.0", port=10000)
