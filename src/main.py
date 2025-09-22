@@ -1,7 +1,7 @@
+import os
 import asyncio
 import logging
 from math import floor
-
 from flask import Flask, jsonify
 from solana.rpc.async_api import AsyncClient
 
@@ -13,7 +13,7 @@ from .metrics import (
     derive_base_mint_from_tx,
     fetch_price_usd_for_mint,
 )
-from .storage import init_db, upsert_token, get_token, update_last_multiple
+from .storage import init_db, upsert_token, update_last_multiple
 from .telegram import send_message
 
 # ---------- Logging setup ----------
@@ -32,19 +32,23 @@ def debug_tokens():
     import aiosqlite
     import nest_asyncio
     nest_asyncio.apply()  # Flask ilə asyncio-nu qarışdırmaq üçün
+
     async def get_tokens():
         async with aiosqlite.connect("data.db") as db:
             async with db.execute("SELECT mint, initial_mc_usd, last_multiple FROM tokens") as cur:
-                rows = await cur.fetchall()
-                return rows
+                return await cur.fetchall()
+
     loop = asyncio.get_event_loop()
     rows = loop.run_until_complete(get_tokens())
     return jsonify({"count": len(rows), "rows": rows})
 
 @app.route("/trigger_test")
 def trigger_test():
-    send_message("Test message from Solana Token Watcher ✅")
-    return "Telegram test message sent!"
+    try:
+        send_message("Test message from Solana Token Watcher ✅")
+        return "Telegram test message sent!"
+    except Exception as e:
+        return f"Failed to send test message: {str(e)}", 500
 
 # ---------- Token processing ----------
 FILTER_MSG_TEMPLATE = (
@@ -104,11 +108,9 @@ async def monitor_multipliers(client: AsyncClient) -> None:
                     rows = await cur.fetchall()
                     for mint, initial_mc_usd, last_multiple in rows:
                         price = await fetch_price_usd_for_mint(mint) or 0.0
-                        if price <= 0:
+                        if price <= 0 or initial_mc_usd <= 0:
                             continue
                         mc = await compute_market_cap_usd(client, mint, price)
-                        if initial_mc_usd <= 0:
-                            continue
                         multiple_float = mc / initial_mc_usd
                         target = max(last_multiple + 1, 2)
                         hit = floor(multiple_float)
@@ -125,23 +127,23 @@ async def main_async() -> None:
     client = AsyncClient(settings.resolved_rpc(), timeout=20)
 
     # Telegram startup message
-    send_message("Solana Token Watcher started ✅")
-    logger.info("Startup message sent to Telegram")
+    try:
+        send_message("Solana Token Watcher started ✅")
+        logger.info("Startup message sent to Telegram")
+    except Exception as e:
+        logger.error(f"Failed to send startup message: {e}")
 
     async def pool_listener():
         async for pool in watch_new_pools():
             signature = pool.get("signature") or ""
-            if not signature:
-                continue
-            await process_new_token(client, signature)
+            if signature:
+                await process_new_token(client, signature)
 
     await asyncio.gather(pool_listener(), monitor_multipliers(client))
 
-def main():
-    try:
-        asyncio.run(main_async())
-    except KeyboardInterrupt:
-        pass
-
+# ---------- Run Flask + background async watcher ----------
 if __name__ == "__main__":
-    main()
+    port = int(os.environ.get("PORT", 10000))
+    loop = asyncio.get_event_loop()
+    loop.create_task(main_async())
+    app.run(host="0.0.0.0", port=port)
