@@ -36,6 +36,28 @@ FILTER_MSG_TEMPLATE = (
 
 # ---- Flask app for Render ----
 app = Flask(__name__)
+from flask import Flask, jsonify
+import sqlite3
+
+app = Flask(__name__)
+
+@app.route("/")
+def health():
+    return "✅ Solana Token Watcher is running!"
+
+@app.route("/debug_tokens")
+def debug_tokens():
+    try:
+        conn = sqlite3.connect("data.db")
+        cur = conn.execute(
+            "SELECT mint, initial_mc_usd, last_multiple FROM tokens ORDER BY rowid DESC LIMIT 20;"
+        )
+        rows = cur.fetchall()
+        conn.close()
+        # JSON formatında qaytarır
+        return jsonify({"count": len(rows), "rows": rows})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/")
 def index():
