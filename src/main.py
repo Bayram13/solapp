@@ -41,6 +41,17 @@ import sqlite3
 
 app = Flask(__name__)
 
+@app.route("/trigger_test")
+def trigger_test():
+    import asyncio
+    from src.storage import upsert_token
+    import random
+
+    test_mint = f"TEST{random.randint(1000,9999)}"
+    asyncio.create_task(upsert_token(test_mint, symbol="TST", name="Test Token", initial_mc_usd=12345))
+    return {"status": "triggered", "mint": test_mint}
+
+
 @app.route("/")
 def health():
     return "✅ Solana Token Watcher is running!"
