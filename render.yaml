@@ -3,7 +3,7 @@ services:
     name: solana-token-watcher
     env: python
     region: oregon
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r src/requirements.txt
     startCommand: python -m src.main
     envVars:
       - key: PYTHONUNBUFFERED
