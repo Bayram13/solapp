@@ -78,6 +78,16 @@ FILTER_MSG_TEMPLATE = (
     "DEX PAID"
 )
 
+# --------------------------------------------
+# Telegram startup message
+# --------------------------------------------
+async def send_startup_message():
+    try:
+        send_message("🚀 Solana Token Watcher aktivdir! Telegram alertlər hazırdır.")
+        logging.info("Startup message sent to Telegram")
+    except Exception as e:
+        logging.error(f"Failed to send startup message: {e}")
+
 async def process_new_token(client: AsyncClient, signature: str) -> None:
     logging.info(f"Processing transaction signature: {signature}")
     mint = await derive_base_mint_from_tx(client, signature)
@@ -138,6 +148,10 @@ async def monitor_multipliers(client: AsyncClient) -> None:
 
 async def main() -> None:
     await init_db()
+    
+    # Send Telegram startup message
+    await send_startup_message()
+    
     client = AsyncClient(settings.resolved_rpc(), timeout=20)
 
     async def pool_listener():
