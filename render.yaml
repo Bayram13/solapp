@@ -1,0 +1,24 @@
+services:
+  - type: worker
+    name: solana-token-watcher
+    env: python
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m src.main
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: HELIUS_API_KEY
+        sync: false
+      - key: SOLANA_TRACKER_API_KEY
+        sync: false
+      - key: MIN_MARKET_CAP_USD
+        value: "15000"
+      - key: MAX_TOP10_HOLDER_PERCENT
+        value: "20"
+      - key: RAYDIUM_PROGRAMS
+        value: "raydium_amm:675kPX9MHTjS2zt1qfr1nyH7r7YG1JYHFeq9gS4j1h4,raydium_clmm:CAMMCzo5v5wzjMNk1E1vDLz8Y1gcF5sBf7bYkq7V88Y"
