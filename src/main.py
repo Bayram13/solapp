@@ -1,6 +1,10 @@
 import asyncio
+import threading
+import os
 from math import floor
+from flask import Flask
 from solana.rpc.async_api import AsyncClient
+
 from .config import settings
 from .solana_watcher import watch_new_pools
 from .metrics import (
@@ -30,7 +34,14 @@ FILTER_MSG_TEMPLATE = (
     "DEX PAID"
 )
 
+# ---- Flask app for Render ----
+app = Flask(__name__)
 
+@app.route("/")
+def index():
+    return "✅ Solana Token Watcher is running!"
+
+# ---- Bot logic ----
 async def process_new_token(client: AsyncClient, signature: str) -> None:
     mint = await derive_base_mint_from_tx(client, signature)
     if not mint:
@@ -81,7 +92,7 @@ async def monitor_multipliers(client: AsyncClient) -> None:
         await asyncio.sleep(45)
 
 
-async def main() -> None:
+async def bot_main() -> None:
     await init_db()
     client = AsyncClient(settings.resolved_rpc(), timeout=20)
 
@@ -95,8 +106,18 @@ async def main() -> None:
     await asyncio.gather(pool_listener(), monitor_multipliers(client))
 
 
+def run_flask():
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port=port)
+
+
 if __name__ == "__main__":
+    # Flask-i ayrı thread-də işə salırıq
+    t = threading.Thread(target=run_flask)
+    t.start()
+
+    # Botu async şəkildə işə salırıq
     try:
-        asyncio.run(main())
+        asyncio.run(bot_main())
     except KeyboardInterrupt:
         pass
